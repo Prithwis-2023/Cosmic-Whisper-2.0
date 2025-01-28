@@ -2,8 +2,13 @@
 #include "arduino_secrets.h"
 #include <RH_ASK.h>
 #include <SPI.h>
+#include <WiFiUdp.h>
 
 RH_ASK driver;
+WiFiUDP Udp;
+
+const unsigned int localUdpPort = 4210; // Port to listen on
+const char *broadcastIP = "255.255.255.255"; // Broadcast IP address
 
 const int ledPin = 2; const int piezoPin = 8; const int dataPin = 3;
 int notes[] = {440, 466, 494, 523, 554, 587, 622, 659, 698, 740, 784, 831};
@@ -28,7 +33,9 @@ void setup()
   {
     Serial.println("Driver initialization failed!");
   }
-  
+
+  Udp.begin(localUdpPort);
+  Serial.println("UDP initialized.");
   enable_WiFi();
   connect_WiFi();
 
@@ -44,29 +51,8 @@ void loop()
   {
     WEB();
   }
-}
 
-void scanNetworks() 
-{
-  Serial.println("Scanning for networks...");
-  int numNetworks = WiFi.scanNetworks();
-  if (numNetworks == 0) 
-  {
-      Serial.println("No networks found.");
-  } 
-  else 
-  {
-    Serial.println("Networks found:");
-    for (int i = 0; i < numNetworks; i++) 
-    {
-        Serial.print(i + 1);
-        Serial.print(": ");
-        Serial.print(WiFi.SSID(i));
-        Serial.print(" (");
-        Serial.print(WiFi.RSSI(i));
-        Serial.println(" dBm)");
-    }
-  }
+  //receiveRFMessage();
 }
 
 void enable_WiFi()
@@ -75,10 +61,6 @@ void enable_WiFi()
   {
     Serial.println("Communication with the WiFi module failed!");
     while (true);
-  }
-  else
-  {
-    Serial.println("WiFi module detected!");
   }
 
   String fv = WiFi.firmwareVersion();
@@ -96,12 +78,8 @@ void connect_WiFi()
     Serial.println(ssid);
 
     status = WiFi.begin(ssid, pass);
-    Serial.print("WiFi Status: ");
-    Serial.println(status);
-    Serial.print("Signal Strength (RSSI): ");
-    Serial.println(WiFi.RSSI());
 
-    delay(20000);
+    delay(10000);
   }
 }
 
@@ -335,5 +313,31 @@ void transmit(int note)
   sprintf(message, "%i", note);
   driver.send((uint8_t *)message, strlen(message));
   driver.waitPacketSent();
-  Serial.println("Sending...");
+  Serial.println("Sending via RF Transmitter...");
+
+    // Send UDP packet to broadcast address
+    Udp.beginPacket(broadcastIP, localUdpPort);
+    Udp.write(message);
+    Udp.endPacket();
+  
+    Serial.println("Broadcasting via UDP...");
+}
+
+// additional functionality
+
+void receiveRFMessage()
+{
+  uint8_t buf[10];
+  uint8_t buflen = sizeof(buf);
+
+  if (driver.recv(buf, &buflen))
+  {
+    buf[buflen] = '\0';
+    int receivedNote = atoi((char *)buf);
+    Serial.print("Received Note: ");
+    Serial.println(receivedNote);
+    digitalWrite(ledPin, HIGH);
+    playTone(receivedNote, 500);
+    digitalWrite(ledPin, LOW);
+  }
 }
